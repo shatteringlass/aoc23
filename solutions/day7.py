@@ -32,12 +32,7 @@ i = read_input('day7').split('\n')
 
 class Card:
     def __init__(self, symbol):
-        self.ranking = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
         self.symbol = symbol
-
-    @property
-    def value(self):
-        return self.ranking.index(self.symbol)
 
     def __str__(self):
         return f"{self.symbol}"
@@ -49,6 +44,8 @@ class Hand:
         self.bid = bid
         self.scores = {'hi': 1, '1p': 2, '2p': 3,
                        '3ok': 4, 'fh': 5, '4ok': 6, '5ok': 7}
+        self.ranking = ['2', '3', '4', '5', '6',
+                        '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
 
     def __eq__(self, y):
         if isinstance(y, Hand):
@@ -73,17 +70,25 @@ class Hand:
         return self == y or self < y
 
     def __str__(self):
-        return f"Cards: {''.join([str(c) for c in self.cards])} | Strength: {self.strength} | Bid: {self.bid}"
+        return f"Cards: {''.join([str(c) for c in self.cards])} | Counter: {self.counter} | Score: {self.score} | Strength: {self.strength} | Bid: {self.bid}"
+
+    def get_card_value(self, card):
+        return self.ranking.index(card)
 
     @property
-    def value(self):
+    def counter(self):
         cnt = {}
-        score = 'hi'
 
         for card in self.cards:
             if card.symbol not in cnt:
                 cnt[card.symbol] = 0
             cnt[card.symbol] += 1
+        return cnt
+
+    @property
+    def score(self):
+        score = 'hi'
+        cnt = self.counter
 
         for k, v in cnt.items():
             if v == 2:
@@ -95,11 +100,15 @@ class Hand:
             if v == 5:
                 score = '5ok'
 
-        return self.scores[score]
+        return score
+
+    @property
+    def value(self):
+        return self.scores[self.score]
 
     @property
     def strength(self):
-        return (self.value, ''.join([f"{c.value:02}" for c in self.cards]))
+        return (self.value, ''.join([f"{self.get_card_value(c.symbol):02}" for c in self.cards]))
 
 
 class Game:
@@ -119,15 +128,67 @@ class Game:
     def value(self):
         # add up the result of multiplying each hand's bid with its rank
         self.rank_hands()
-        return sum([(r+1)*h.bid for (r,h) in enumerate(self.hands)])
+        return sum([(r+1)*h.bid for (r, h) in enumerate(self.hands)])
+
+
+class JokersHand(Hand):
+    def __init__(self, cards, bid):
+        super().__init__(cards, bid)
+        self.ranking = ['J', '2', '3', '4', '5', '6',
+                        '7', '8', '9', 'T', 'Q', 'K', 'A']
+
+    @property
+    def counter(self):
+        cnt = {}
+
+        for card in self.cards:
+            if card.symbol not in cnt:
+                cnt[card.symbol] = 0
+            cnt[card.symbol] += 1
+
+        if 'J' in cnt:
+            l = [(k, v)
+                 for k, v in sorted(
+                cnt.items(),
+                key=lambda item: (
+                    item[1],
+                    self.get_card_value(item[0])
+                )
+            )
+            ]
+            if l[-1][0] == 'J':
+                try:
+                    cnt[l[-2][0]] += cnt['J']
+                except IndexError:
+                    # There are no other symbols, just use A
+                    cnt['A'] = cnt['J']
+            else:
+                cnt[l[-1][0]] += cnt['J']
+            cnt['J'] = 0
+        #print(cnt)
+        return cnt
+
+
+class JokersGame(Game):
+    def __init__(self, entries):
+        self.hands = []
+        self._sorted = False
+        for e in entries:
+            cards, bid = e.split()
+            self.hands.append(JokersHand(cards, int(bid)))
 
 
 def compute_solution(part):
-    g = Game(i)
+    if part == 1:
+        g = Game(i)
+    elif part == 2:
+        g = JokersGame(i)
+
     value = g.value
-    for h in g.hands:
-        print(str(h))
+    # for h in g.hands:
+    #     print(str(h))
     return value
 
 
 print(f"Solution for part 1 is: {compute_solution(1)}")
+print(f"Solution for part 2 is: {compute_solution(2)}")
