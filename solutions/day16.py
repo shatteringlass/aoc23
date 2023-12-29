@@ -21,7 +21,6 @@ def follow_path(grid, start_row=0, start_col=0, start_dir=Direction.RIGHT):
 
     queue = collections.deque([(start_row, start_col, start_dir)])
     seen = set()
-    path = set()
 
     while queue:
 
@@ -29,7 +28,6 @@ def follow_path(grid, start_row=0, start_col=0, start_dir=Direction.RIGHT):
 
         if (r, c, d) not in seen and r >= 0 and r < rows and c >= 0 and c < cols:
             # print(f"Checking cell {r,c} with symbol {grid[r][c]} traveling in d {d.name}, current path is {len(path)} cells long.")
-            path.add((r, c))
             seen.add((r, c, d))
 
             if grid[r][c] == '.':
@@ -60,7 +58,7 @@ def follow_path(grid, start_row=0, start_col=0, start_dir=Direction.RIGHT):
                 queue.append(
                     (r+d.value[0], c+d.value[1], d))
 
-    return path
+    return set((r,c) for (r,c,d) in seen)
 
 
 def print_path(path, height, width):
@@ -79,10 +77,21 @@ def get_solution(part):
 
     elif part == 2:
 
-        for row in (0,rows-1):
-            for col in (0,cols-1):
-                for d in (Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT):
-                    solution = max(solution, len(follow_path(grid, row, col, d)))
+        start_points = set()
+
+        for row in range(rows):
+            for col in range(cols):
+                if row == 0:
+                    start_points.add((row, col, Direction.DOWN))
+                if row == rows - 1:
+                    start_points.add((row, col, Direction.UP))
+                if col == 0:
+                    start_points.add((row, col, Direction.RIGHT))
+                if col == cols - 1:
+                    start_points.add((row, col, Direction.LEFT))
+
+        for sp in start_points:
+            solution = max(solution, len(follow_path(grid, *sp)))
 
 
     return solution
