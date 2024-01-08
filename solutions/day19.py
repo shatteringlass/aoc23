@@ -30,6 +30,79 @@ def parse_workflow(workflow):
     return wfname, parse_conditions(conditions)
 
 
+def check_ratings(rtn, wkf):
+    solution = 0
+    end_states = ('R', 'A')
+    start_state = 'in'
+
+    for r in rtn:
+        next_state = start_state
+        while next_state not in end_states:
+            for var, sym, val, tar in wkf[next_state]:
+                if not tar:
+                    next_state = var
+                    break
+                elif sym == '>':
+                    if r[var] > int(val):
+                        next_state = tar
+                        break
+                else:
+                    if r[var] < int(val):
+                        next_state = tar
+                        break
+
+        if next_state == 'A':
+            solution += sum(r.values())
+
+    return solution
+
+
+def get_valid_combos(wkf, start="in", combos=None):
+
+    if not combos:
+        combos = {k: (1, 4000) for k in "xmas"}
+
+    if start == "A":
+        product = 1
+        for (start, end) in combos.values():
+            product *= end - start + 1
+        return product
+
+    if start == "R":
+        return 0
+
+    *rules, default = wkf[start]
+
+    total = 0
+    impossible = False
+
+    for var, sym, num, target in rules:
+        start, end = combos[var]
+        num = int(num)
+
+        if sym == '<':
+            true_rng, false_rng = (start, num-1), (num, end)
+        else:
+            true_rng, false_rng = (num+1, end), (start, num)
+
+        # explore true branch
+        if true_rng[0] <= true_rng[1]:
+            new_combos = combos.copy()
+            new_combos[var] = true_rng
+            total += get_valid_combos(wkf, target, new_combos)
+        # update false
+        if false_rng[0] <= false_rng[1]:
+            combos[var] = false_rng
+        else:
+            impossible = True
+            break
+
+    if not impossible:
+        total += get_valid_combos(wkf, default[0], combos)
+
+    return total
+
+
 def get_solution(part):
 
     solution = 0
@@ -50,28 +123,10 @@ def get_solution(part):
         rtn.append(dct)
 
     if part == 1:
-        for r in rtn:
-            next_state = 'in'
-            print(f"Assessing rating {r}")
-            while next_state not in ('R', 'A'):
-                for condition in wkf[next_state]:
-                    print(f"Checking condition {condition}")
-                    if condition[1]:
-                        if condition[1] == '>':
-                            if r[condition[0]] > int(condition[2]):
-                                next_state = condition[3]
-                                break
-                        if condition[1] == '<':
-                            if r[condition[0]] < int(condition[2]):
-                                next_state = condition[3]
-                                break
-                    next_state = condition[0]
-
-            if next_state == 'A':
-                solution += sum(r.values())
+        solution = check_ratings(rtn, wkf)
 
     elif part == 2:
-        solution = 0
+        solution = get_valid_combos(wkf)
 
     return solution
 
