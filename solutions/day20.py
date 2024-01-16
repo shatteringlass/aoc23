@@ -5,9 +5,10 @@ import collections
 
 
 class ModuleType(enum.Enum):
+    UNKNOWN = ''
     FLIPFLOP = '%'
     CONJUNCTION = '&'
-    BROADCASTER = ''
+    BROADCASTER = 'broadcaster'
 
 
 class Level(enum.Enum):
@@ -16,140 +17,92 @@ class Level(enum.Enum):
 
 
 class Module:
-    def __init__(self, type: ModuleType, state: typing.Dict[str, Level], source: str = None, destinations: typing.List[str] = []):
-        self.type = type
-        self.state = state
-        self.source = source
+    def __init__(self, mod_type: ModuleType, state: typing.Dict[str, Level], destinations: typing.List[str] = []):
+        self.type = mod_type
+        self._state = state
         self.destinations = destinations
 
     @property
     def state(self):
         if (self.type == ModuleType.FLIPFLOP) or (self.type == ModuleType.BROADCASTER):
-            return Level(sum(self.state.values()))
+            return Level(sum(map(lambda x: x.value, self._state.values())))
         if self.type == ModuleType.CONJUNCTION:
-            return Level(int(not all(self.state.values)))
+            # if it remembers high pulses for all inputs, it sends a low pulse;
+            if all(map(lambda x: x == Level.HI, self._state.values())):
+                return Level.LOW
+            # otherwise, it sends a high pulse.
+            return Level.HI
 
-    def add_source(self, src_name):
-        if self.type == ModuleType.CONJUNCTION:
-            self.state[src_name] = Level.LOW
+    @state.setter
+    def state(self, value):
+        self._state = value
+
+    @property
+    def sources(self):
+        return tuple(self._state.keys())
 
     def receive(self, source: str, pulse: Level):
         if self.type == ModuleType.FLIPFLOP:
-            self.state["*"] = Level(1 - self.state.value)
+            if pulse == Level.LOW:
+                self._state["*"] = Level(1 - self.state.value)
+                return True
         if self.type == ModuleType.CONJUNCTION:
-            self.state[source] = pulse
+            self._state[source] = pulse
+            return True
+        return False
 
 
-""" 
-class FlipFlopModule(Module):
-    def __init__(self):
-        super().__init__(0)
+def add_module(instr, src, dests):
+    name, mt, state = src, ModuleType.UNKNOWN, {}
 
-    @property
-    def output(self):
-        return self.state
+    if name == 'broadcaster':
+        mt = ModuleType.BROADCASTER
+        state['*'] = Level.LOW
+    else:
+        n, *name = name
+        name = ''.join(name)
+        mt = ModuleType(n)
+        if mt == ModuleType.FLIPFLOP:
+            state = {'*': Level.LOW}
 
-    def receive(self, src, pulse):
-        if (pulse == 0):
-            self.state = 1 - self.state
+    if name in instr:
+        instr[name].type = mt
+        #instr[name].state = state
+        instr[name].destinations = dests
+    else:
+        instr[name] = Module(mt, state, dests)
 
+    for dest in dests:
+        if dest not in instr:
+            instr[dest] = Module(ModuleType.UNKNOWN, {}, [])
+        instr[dest]._state[name] = Level.LOW
 
-class ConjunctionModule(Module):
-    def __init__(self, inputs={}):
-        super().__init__(inputs)
-
-    @property
-    def output(self):
-        print(f"Input state: {self.state}")
-        return int(not all(self.state))
-
-    def add_input(self, src, pulse=0):
-        self.state[src] = pulse
-
-    def receive(self, src, pulse):
-        self.add_input(src, pulse)
-
-
-class BroadcastModule(Module):
-    def __init__(self):
-        super().__init__(0)
-
-    @property
-    def output(self):
-        return self.state
-
-    def receive(self, src, pulse):
-        self.state = pulse
- """
-
-
-def get_module(src):
-    if src == 'broadcaster':
-        return src, Module(ModuleType.BROADCASTER, 0)
-    if '%' in src:
-        return src[1:], Module(ModuleType.FLIPFLOP, 0)
-    if '&' in src:
-        return src[1:], Module(ModuleType.CONJUNCTION, 0)
-    return src, Module({})
+    return instr
 
 
 def parse_modules(modules):
-    config = {}
+    instr = {}
 
-    for module in modules:
-        src, dests = module.split(" -> ")
-        src_name, obj = get_module(src)
-        src_config = config.setdefault(src_name, (obj, []))
+    for conn in modules:
+        src, dests = conn.split(" -> ")
+        instr = add_module(instr, src, [d.strip() for d in dests.split(",")])
 
-        for d in dests.split(","):
-            dest_name, dest_obj = get_module(d.strip())
-
-            if dest_name not in config:
-                # destination not yet created
-                config[dest_name] = (dest_obj, [])
-            else:
-                # destination present
-                prev_dest_obj = config[dest_name][0]
-                _, this_dest_obj = get_module(dest_name)
-                if isinstance(this_dest_obj, Module):
-                    # Generic module
-                    if isinstance(prev_dest_obj, Module):
-                        # Specific module type still unknown
-                        continue
-                    else:
-                        # Specific module type already known
-                        continue
-                else:
-                    # not a generic module
-                    if isinstance(prev_dest_obj, Module):
-                        # convert the old type into the new
-                        config[dest_name][0] = this_dest_obj
-                        this_dest_obj.state = prev_dest_obj.state
-                    else:
-                        # this case cannot really happen
-                        print("Found double definition for module")
-
-            config[dest_name][0].add_input(src_name)
-            src_config[1].append(dest_name)
-
-    return config
+    return instr
 
 
-def cycle(modules):
-    print(modules)
-    counter = {0: 1, 1: 0}
-    left = collections.deque(modules.keys())
+def cycle(modules, counter=None):
+
+    counter = counter or {Level.LOW: 1, Level.HI: 0, 'rx': False}
+    left = collections.deque(['broadcaster'])
 
     while left:
         src = left.popleft()
-        obj, dests = modules.get(src)
-        print(f"Calculating output for {src}")
-        pulse = obj.output
-        for d in dests:
+        obj = modules.get(src)
+        pulse = obj.state
+        for d in obj.destinations:
             counter[pulse] += 1
-            print(f"{src} -{pulse}-> {d}")
-            if d in modules:
-                modules[d][0].receive(src, pulse)
+            #print(f"{src} -{pulse}-> {d}")
+            if modules[d].receive(src, pulse):
                 left.append(d)
 
     return counter
@@ -158,12 +111,18 @@ def cycle(modules):
 def get_solution(part):
 
     solution = 0
-    modules = parse_modules(read_input('day20_small2').splitlines())
+    modules = parse_modules(read_input('day20').splitlines())
 
     if part == 1:
-        print(cycle(modules))
+        counter = cycle(modules)
+        for it in range(999):
+            counter[Level.LOW] += 1
+            counter = cycle(modules, counter)
+        solution = counter[Level.LOW] * counter[Level.HI]
     elif part == 2:
         pass
+
+
 
     return solution
 
