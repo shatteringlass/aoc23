@@ -113,9 +113,9 @@ def cycle(modules, counter=None, layer=None):
             counter[pulse] += 1
             # print(f"{src} -{pulse}-> {d}")
             if modules[d].receive(src, pulse):
-                if layer and pulse == Level.HI and d in layer:
-                    raise ModuleLayerReachedException(d)
                 left.append(d)
+                if layer and modules[d].state == Level.HI and d in layer:
+                    raise ModuleLayerReachedException(d)
 
     counter[Level.LOW] += 1
     return counter
@@ -146,7 +146,6 @@ def get_solution(part):
                 _ = cycle(modules, layer=sources)
             except ModuleLayerReachedException as mlre:
                 name = mlre.module_name
-                print(f"Sent HI pulse to {name}")
                 sources = tuple(s for s in sources if s != name)
                 cycles.append(cur_cycle)
 
