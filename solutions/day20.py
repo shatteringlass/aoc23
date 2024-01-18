@@ -3,6 +3,8 @@ import typing
 import enum
 import collections
 
+import math
+
 
 class ModuleType(enum.Enum):
     UNKNOWN = ''
@@ -25,13 +27,15 @@ class Module:
     @property
     def state(self):
         if (self.type == ModuleType.FLIPFLOP) or (self.type == ModuleType.BROADCASTER):
-            return Level(sum(map(lambda x: x.value, self._state.values())))
+            return Level(sum([v.value for k, v in self._state.items() if k != '*']))
         if self.type == ModuleType.CONJUNCTION:
             # if it remembers high pulses for all inputs, it sends a low pulse;
-            if all(map(lambda x: x == Level.HI, self._state.values())):
-                return Level.LOW
-            # otherwise, it sends a high pulse.
-            return Level.HI
+            # otherwise send a high pulse
+            return Level(
+                int(
+                    Level.LOW in self._state.values()
+                )
+            )
 
     @state.setter
     def state(self, value):
@@ -39,12 +43,12 @@ class Module:
 
     @property
     def sources(self):
-        return tuple(self._state.keys())
+        return tuple(x for x in self._state.keys() if x != '*')
 
     def receive(self, source: str, pulse: Level):
         if self.type == ModuleType.FLIPFLOP:
             if pulse == Level.LOW:
-                self._state["*"] = Level(1 - self.state.value)
+                self._state[self.sources[0]] = Level(1 - self.state.value)
                 return True
         if self.type == ModuleType.CONJUNCTION:
             self._state[source] = pulse
@@ -67,7 +71,7 @@ def add_module(instr, src, dests):
 
     if name in instr:
         instr[name].type = mt
-        #instr[name].state = state
+        # instr[name].state = state
         instr[name].destinations = dests
     else:
         instr[name] = Module(mt, state, dests)
@@ -90,9 +94,15 @@ def parse_modules(modules):
     return instr
 
 
-def cycle(modules, counter=None):
+class ModuleLayerReachedException(Exception):
 
-    counter = counter or {Level.LOW: 1, Level.HI: 0, 'rx': False}
+    def __init__(self, module_name):
+        self.module_name = module_name
+
+
+def cycle(modules, counter=None, layer=None):
+
+    counter = counter or {Level.LOW: 0, Level.HI: 0, 'rx': False}
     left = collections.deque(['broadcaster'])
 
     while left:
@@ -101,10 +111,13 @@ def cycle(modules, counter=None):
         pulse = obj.state
         for d in obj.destinations:
             counter[pulse] += 1
-            #print(f"{src} -{pulse}-> {d}")
+            # print(f"{src} -{pulse}-> {d}")
             if modules[d].receive(src, pulse):
+                if layer and pulse == Level.HI and d in layer:
+                    raise ModuleLayerReachedException(d)
                 left.append(d)
 
+    counter[Level.LOW] += 1
     return counter
 
 
@@ -114,15 +127,30 @@ def get_solution(part):
     modules = parse_modules(read_input('day20').splitlines())
 
     if part == 1:
-        counter = cycle(modules)
-        for it in range(999):
-            counter[Level.LOW] += 1
+        counter = None
+        for _ in range(1000):
             counter = cycle(modules, counter)
         solution = counter[Level.LOW] * counter[Level.HI]
     elif part == 2:
-        pass
+        # Assumption #1: There is only 1 module pointing to rx
+        # Assumption #2: The final module before rx is a conjunction
+        # Assumption #3: The second to last layer cyclically switches to high
+        cycles = []
+        sources = tuple(
+            s for x in modules['rx'].sources for s in modules[x].sources)
+        cur_cycle = 0
+        mlre = None
+        while sources:
+            try:
+                cur_cycle += 1
+                _ = cycle(modules, layer=sources)
+            except ModuleLayerReachedException as mlre:
+                name = mlre.module_name
+                print(f"Sent HI pulse to {name}")
+                sources = tuple(s for s in sources if s != name)
+                cycles.append(cur_cycle)
 
-
+        solution = math.lcm(*cycles)
 
     return solution
 
