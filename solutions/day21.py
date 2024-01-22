@@ -16,12 +16,17 @@ class Direction(enum.Enum):
 @dataclasses.dataclass(frozen=True)
 class State:
     pos: typing.Tuple[int, int]
-    tile: typing.Tuple[int, int]
     steps_left: int
 
     @property
     def neighbors(self, directions=(Direction.N, Direction.S, Direction.W, Direction.E)):
-        return tuple(State(tuple(sum(coord) for coord in zip(self.pos, d.value)), self.tile, self.steps_left-1) for d in directions)
+        return tuple(
+            State(
+                tuple(
+                    sum(coord) for coord in zip(self.pos, d.value)
+                ),  self.steps_left-1
+            ) for d in directions
+        )
 
 
 def parse_puzzle_input(puzzle):
@@ -43,10 +48,12 @@ def parse_puzzle_input(puzzle):
     return rocks, gardens, start
 
 
-def remap_state(state, modulo):
-    pos = (state.pos[0] % modulo, state.pos[1] % modulo)
-    tile = state.tile
-    return State(pos, tile, state.steps_left)
+def remap_state(state, size):
+    pos_x, pos_y = state.pos
+    result = State(
+        (pos_x % size, pos_y % size),
+        state.steps_left)
+    return result
 
 
 def print_map(pos, points, moves, max_x, max_y):
@@ -55,33 +62,33 @@ def print_map(pos, points, moves, max_x, max_y):
             i, j) in points else '#' for j in range(max_y)]))
 
 
-def walk_to_gardens(start, gardens, steps, modulo):
-    result = set()
-    queue = deque([State(start, (0, 0), steps)])
+def walk_to_gardens(start, gardens, steps, size):
+    result = dict()
+    queue = deque([State(start, steps)])
     seen = set()
 
     while queue:
         pos = queue.popleft()
-        if pos.steps_left >= 0:
+        if (pos.steps_left == -1) or (pos.pos in seen):
+            continue
 
-            if pos.steps_left % 2 == steps % 2:
-                result.add(pos.pos)
+        result.setdefault(steps - pos.steps_left, 0)
+        result[steps - pos.steps_left] += 1
+        seen.add(pos.pos)
 
-            if pos.steps_left > 0:
-                for neighbor in pos.neighbors:
-                    neighbor = remap_state(neighbor, modulo)
-                    if neighbor.pos in gardens and neighbor not in seen:
-                        queue.append(neighbor)
-                        seen.add(neighbor)
+        for neighbor in pos.neighbors:
+            remapped = remap_state(neighbor, size)
+            if remapped.pos in gardens:
+                queue.append(neighbor)
 
-    return len(result)
+    return sum(amount for distance, amount in result.items() if distance % 2 == steps % 2)
 
 
-def three_point_formula(p1, p2, p3):
-    c = p1
-    b = (4*p2 - 3*p1 - p3) // 2
-    a = p2 - p1 - b
-    return a, b, c
+def three_point_formula(y, n):
+    a = (y[2] - (2 * y[1]) + y[0]) // 2
+    b = y[1] - y[0] - a
+    c = y[0]
+    return (a * n**2) + (b * n) + c
 
 
 def get_solution(part):
@@ -96,14 +103,16 @@ def get_solution(part):
         solution = walk_to_gardens(start, gardens, steps, len(puzzle))
 
     elif part == 2:
-        steps = 26501365
-        period = 65
-        samples = tuple(period + i*len(puzzle) for i in range(3))
-        p = tuple(walk_to_gardens(start, gardens, s, len(puzzle))
-                  for s in samples)
-        a, b, c = three_point_formula(*p)
-        x = (steps - len(puzzle)//2)
-        solution = a*x**2 + b*x + c
+        goal = 26501365
+        size = len(puzzle[1])
+        edge = size // 2
+        steps = tuple(edge + i * size for i in range(3))
+        y = [
+            walk_to_gardens(start, gardens, s, size)
+            for s in steps
+        ]
+
+        return three_point_formula(y, ((goal - edge) // size))
 
     return solution
 
