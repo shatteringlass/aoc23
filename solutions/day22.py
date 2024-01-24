@@ -1,7 +1,9 @@
-from util import read_input
 import dataclasses
-from typing import Tuple
 import enum
+from queue import PriorityQueue
+from typing import Tuple
+
+from util import read_input
 
 
 class Axis(enum.Enum):
@@ -10,19 +12,15 @@ class Axis(enum.Enum):
     Z = 2
 
 
-@dataclasses.dataclass(frozen=True)
 class Brick:
-    start: Tuple[int, int, int]
-    end: Tuple[int, int, int]
-    above: set[Brick]
-    below: set[Brick]
 
-    def is_removable(self, bricks):
-        for brick in self.above:
-            if len(bricks[brick].below) == 1:
-                return False
-
-        return True
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+        self.below = []
+        self.above = []
+        self.floor = self.min_for_axis(Axis.Z)
+        self.height = (self.max_for_axis(Axis.Z) - self.min_for_axis(Axis.Z))
 
     def min_for_axis(self, axis: Axis) -> int:
         return self._axis_limit(min, axis)
@@ -34,15 +32,33 @@ class Brick:
         return func(self.start[axis.value], self.end[axis.value])
 
     def __lt__(self, other: "Brick") -> bool:
-        return self.min_for_axis(Axis.Z) < other.min_for_axis(Axis.Z)
+        return self.floor < other.floor
 
-    def update_z(self, new_z: int) -> "Brick":
-        delta = (0, 0, self.min_for_axis(Axis.Z) - new_z)
-        return Brick(*(tuple(map(sum, zip(coord, delta))) for coord in (self.start, self.end)))
+    def intersects(self, other: "Brick") -> bool:
+        (
+            (this_area_start_x, this_area_start_y),
+            (this_area_end_x, this_area_end_y)
+        ) = self.area_xy
+        (
+            (other_area_start_x, other_area_start_y),
+            (other_area_end_x, other_area_end_y)
+        ) = other.area_xy
 
-    @property
-    def height(self) -> int:
-        return (self.max_for_axis(Axis.Z) - self.min_for_axis(Axis.Z) + 1)
+        # check if they are x-adjacent
+        if (
+            (this_area_end_x < other_area_start_x)
+            or (this_area_start_x > other_area_end_x)
+        ):
+            return False
+
+        # check if they are y-adjacent
+        if (
+            (this_area_start_y > other_area_end_y)
+            or (this_area_end_y < other_area_start_y)
+        ):
+            return False
+
+        return True
 
     @property
     def area_xy(self) -> tuple[tuple[int, int]]:
@@ -57,91 +73,105 @@ class Brick:
             )
         )
 
-    def intersects(self, other: "Brick") -> bool:
-        (
-            (this_area_start_x, this_area_start_y),
-            (this_area_end_x, this_area_end_y)
-        ) = self.area_xy()
-        (
-            (other_area_start_x, other_area_start_y),
-            (other_area_end_x, other_area_end_y)
-        ) = other.area_xy()
+    @property
+    def is_redundant(self) -> bool:
+        if len(self.above) > 0:
+            if sum(1 for b in self.above if len(b.below) > 1) == len(self.above):
+                return True
+        else:
+            return True
 
-        # check if they are next to one another
-        if this_area_end_x < other_area_start_x or this_area_start_x > other_area_end_x:
-            return False
-
-        # check if they are on top of one another
-        if this_area_start_y > other_area_end_y or this_area_end_y < other_area_start_y:
-            return False
-
-        return True
+    @property
+    def fall_stack(self):
+        return [s for s in self.above if len(s.below) == 1]
 
 
 def parse_brick(coords):
-    points = ((int(c) for c in p.split(",")) for p in coords.split("~"))
+    points = tuple(tuple(int(c) for c in p.split(","))
+                   for p in coords.split("~"))
     return Brick(*points)
 
 
-def build_graph(bricks):
-    graph = dict()
-    for brick in bricks:
-        pass
+def parse_puzzle(puzzle):
+
+    bricks = PriorityQueue()
+
+    min_floor = None
+
+    for brick in puzzle:
+        bricks.put(brick)
+        if min_floor is None or min_floor > brick.floor:
+            min_floor = brick.floor
+
+    return bricks, min_floor
 
 
-def drop_once(bricks):
+def find_redundant(bricks):
+    return list(brick for brick in bricks if brick.is_redundant)
 
-    supports = dict()
-    supported_by = dict()
 
-    min_x, min_y, max_x, max_y = 0, 0, 0, 0
-
-    for brick in bricks:
-        min_x = min(brick.min_for_axis(Axis.X), min_x)
-        min_y = min(brick.min_for_axis(Axis.Y), min_y)
-        max_x = max(brick.max_for_axis(Axis.X), max_x)
-        max_y = max(brick.max_for_axis(Axis.Y), max_y)
-
-    heights = [
-        [0 for y in range(max_y-min_y+1)]
-        for x in range(max_x-min_x+1)
-    ]
+def chain_reaction(bricks: list[Brick]):
+    result = set()
 
     for brick in bricks:
-        area_start, area_end = brick.area_xy()
-        old_max_height = max(
-            row[area_start[1]:area_end[1]+1]
-            for row in heights[area_start[0]:area_end[0]+1]
-        )
-        brick.update_z(old_max_height + 1)
-        new_max_height = old_max_height + brick.height
-        heights
+        fall_stack = brick.fall_stack
+        fallen = set()
 
-    return bricks
+        while fall_stack:
+            falling = fall_stack.pop(0)
+            fallen.add(falling)
+            for b in falling.above:
+                if set(b.below).issubset(fallen):
+                    fall_stack.append(b)
+
+        result = result.union(fallen)
+
+    return result
 
 
-def drop_to_floor(bricks):
-    while len(drop_once(bricks) > 0):
-        pass
+def stabilize_bricks(bricks: list[Brick], floor_level: int):
+    stable_bricks = []
 
-    return bricks
+    while not bricks.empty():
+        brick = bricks.get()
+        if brick.floor == floor_level:
+            stable_bricks.append(brick)
+        else:
+            below, level = list(), 0
+
+            for sb in stable_bricks:
+                if sb.intersects(brick):
+                    sb_top = sb.floor + sb.height
+                    if sb_top > level:
+                        # speed-run to top of tower
+                        below, level = list(), sb_top
+                    if sb_top == level:
+                        # take note of underlying block
+                        below.append(sb)
+                        
+            brick.below = below
+            brick.floor = level + 1
+            stable_bricks.append(brick)
+
+            for sb in below:
+                sb.above.append(brick)
+
+    return stable_bricks
 
 
 def get_solution(part):
 
     solution = 0
-
-    bricks = sorted([parse_brick(coords)
-                    for coords in read_input('day22').splitlines()])
+    puzzle = [parse_brick(coords)
+              for coords in read_input('day22').splitlines()]
+    bricks, min_floor = parse_puzzle(puzzle)
+    bricks = stabilize_bricks(bricks, min_floor)
 
     if part == 1:
-        # count bricks that are either
-        # - not supporting any other brick or
-        # - supporting another brick that is also supported by a second brick
-        drop_to_floor(bricks)
+        solution = len(find_redundant(bricks))
 
     elif part == 2:
-        pass
+        solution = len(chain_reaction(bricks))
 
     return solution
 
