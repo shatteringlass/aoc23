@@ -111,9 +111,10 @@ def find_redundant(bricks):
 
 
 def chain_reaction(bricks: list[Brick]):
-    result = set()
+    result = list()
 
     for brick in bricks:
+        # get bricks directly on top with no other supporting brick
         fall_stack = brick.fall_stack
         fallen = set()
 
@@ -122,9 +123,10 @@ def chain_reaction(bricks: list[Brick]):
             fallen.add(falling)
             for b in falling.above:
                 if set(b.below).issubset(fallen):
+                    # propagate upwards
                     fall_stack.append(b)
-
-        result = result.union(fallen)
+        
+        result.extend(fallen)
 
     return result
 
@@ -148,7 +150,7 @@ def stabilize_bricks(bricks: list[Brick], floor_level: int):
                     if sb_top == level:
                         # take note of underlying block
                         below.append(sb)
-                        
+
             brick.below = below
             brick.floor = level + 1
             stable_bricks.append(brick)
