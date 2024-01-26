@@ -33,12 +33,11 @@ def parse_maze(maze: str):
     for row, line in enumerate(lines):
         for col, char in enumerate(line):
             if char == '.':
-                if row == 0:
+                if row == 0 and col == 1:
                     start = (row, col)
-                elif row == cols - 1:
+                elif row == rows - 1 and col == cols - 2:
                     end = (row, col)
-                else:
-                    paths.add((row, col))
+                paths.add((row, col))
             elif char == '<':
                 slopes[Direction.W].add((row, col))
             elif char == '>':
@@ -51,28 +50,37 @@ def parse_maze(maze: str):
     return start, end, paths, slopes
 
 
-def get_next_valid(position, paths, slopes):
+def get_next_valid(cur_pos, cur_path, paths, slopes, slippery=True):
     for d in Direction:
-        c = step(position, d)
-        if c in paths:
-            yield c, d
-        elif c in slopes[d]:
-            yield c, d
+        c = step(cur_pos, d)
+
+        if c not in cur_path:
+
+            if c in paths:
+                yield c
+
+            if slippery:
+                if c in slopes[d]:
+                    yield c
+            else:
+                if c in slopes:
+                    yield c
 
 
-def find_longest_walk(start, end, paths, slopes):
-    stack = [(start, Direction.S, [start])]
+def find_longest_walk(start, end, paths, slopes, slippery=True):
+    stack = [(start, [start])]
     max_path = [start]
 
     while stack:
-        cur_pos, direction, path = stack.pop()
+        cur_pos, path = stack.pop()
 
-        if cur_pos == end and len(path) > max_path:
+        # input(f"{cur_pos}, {path}")
+
+        if cur_pos == end and len(path) > len(max_path):
             max_path = path.copy()
 
-        for (next_pos, next_dir) in get_next_valid(cur_pos, paths, slopes):
-            if next_pos not in path:
-                stack.append((next_pos, next_dir, path+[next_pos]))
+        for next_pos in get_next_valid(cur_pos, path, paths, slopes, slippery):
+            stack.append((next_pos, path+[next_pos]))
 
     return max_path
 
@@ -86,10 +94,10 @@ def get_solution(part):
 
     if part == 1:
         walk = find_longest_walk(start, end, paths, slopes)
-        print(walk)
-        solution = len(walk)
     elif part == 2:
-        pass
+        walk = find_longest_walk(start, end, paths, set(x for s in slopes.values() for x in s), slippery=False)
+
+    solution = len(walk)-1
 
     return solution
 
