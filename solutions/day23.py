@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 import enum
-
+from collections import defaultdict
 from util import read_input
 
 
@@ -11,21 +10,16 @@ class Direction(enum.Enum):
     W = (0, -1)
 
 
-@dataclass
-class State:
-    position: tuple[int, int, int]
-    direction: Direction
-    path: list[tuple[int, int, int]]
-
-
 def step(position: tuple[int, int], direction: Direction):
     return tuple(map(sum, zip(position, direction.value)))
 
 
 def parse_maze(maze: str):
     start, end, paths = None, None, set()
-    slopes = {Direction.N: set(), Direction.S: set(),
-              Direction.W: set(), Direction.E: set()}
+    slopes = {Direction.N: set(),
+              Direction.S: set(),
+              Direction.W: set(),
+              Direction.E: set()}
 
     lines = maze.splitlines()
     rows, cols = len(lines), len(lines[0])
@@ -50,39 +44,74 @@ def parse_maze(maze: str):
     return start, end, paths, slopes
 
 
-def get_next_valid(cur_pos, cur_path, paths, slopes, slippery=True):
-    for d in Direction:
-        c = step(cur_pos, d)
-
-        if c not in cur_path:
-
-            if c in paths:
-                yield c
-
-            if slippery:
-                if c in slopes[d]:
-                    yield c
-            else:
-                if c in slopes:
-                    yield c
+def get_next_valid(cur_pos, paths, slopes, slippery=True):
+    return (
+        step(cur_pos, d) for d in Direction
+        if step(cur_pos, d) in paths
+        or (slippery and step(cur_pos, d) in slopes[d])
+    )
 
 
-def find_longest_walk(start, end, paths, slopes, slippery=True):
-    stack = [(start, [start])]
-    max_path = [start]
+def find_nodes(paths, slopes, slippery=True):
+    nodes = defaultdict(set)
+
+    for p in paths:
+        for n in get_next_valid(p, paths, slopes, slippery):
+            nodes.setdefault(p, set()).add(n)
+            nodes.setdefault(n, set()).add(p)
+
+    if slippery:
+        for s in set(x for subset in slopes.values() for x in subset):
+            for n in get_next_valid(s, paths, slopes, slippery):
+                nodes.setdefault(s, set()).add(n)
+                nodes.setdefault(n, set()).add(s)
+
+    return set(node
+               for node, neighbors in nodes.items()
+               if len(neighbors) > 2)
+
+
+def find_edges(paths, slopes, nodes, slippery=True):
+    edges = defaultdict(set)
+
+    for j in nodes:
+        queue = [(j, 0)]
+        seen = set()
+
+        while queue:
+            (x, y), dist = queue.pop(0)
+
+            if (x, y) in seen:
+                continue
+
+            seen.add((x, y))
+
+            for n in get_next_valid((x, y), paths, slopes, slippery):
+                if n in nodes and n != j:
+                    edges.setdefault(j, set()).add((n, dist+1))
+                else:
+                    queue.append((n, dist+1))
+    return edges
+
+
+def find_longest_walk(start, end, edges):
+    stack = [(start, [start], 0)]
+
+    valid_paths = []
 
     while stack:
-        cur_pos, path = stack.pop()
+        current, path, pathlen = stack.pop()
 
-        # input(f"{cur_pos}, {path}")
+        if current == end:
+            valid_paths.append((path, pathlen))
+            continue
 
-        if cur_pos == end and len(path) > len(max_path):
-            max_path = path.copy()
+        for next_node, distance in edges[current]:
+            if next_node not in path:
+                new_path = path + [next_node]
+                stack.append((next_node, new_path, pathlen+distance))
 
-        for next_pos in get_next_valid(cur_pos, path, paths, slopes, slippery):
-            stack.append((next_pos, path+[next_pos]))
-
-    return max_path
+    return sorted(valid_paths, key=lambda x: x[1])[-1]
 
 
 def get_solution(part):
@@ -91,13 +120,18 @@ def get_solution(part):
     maze = read_input('day23')
 
     start, end, paths, slopes = parse_maze(maze)
+    slippery = True
 
     if part == 1:
-        walk = find_longest_walk(start, end, paths, slopes)
+        pass
     elif part == 2:
-        walk = find_longest_walk(start, end, paths, set(x for s in slopes.values() for x in s), slippery=False)
+        slippery = False
+        paths = paths.union(set(x for s in slopes.values() for x in s))
 
-    solution = len(walk)-1
+    nodes = find_nodes(paths, slopes, slippery=slippery)
+    edges = find_edges(paths, slopes, nodes.union({start, end}))
+
+    max_path, solution = find_longest_walk(start, end, edges)
 
     return solution
 
