@@ -1,6 +1,8 @@
-import dataclasses
+
 from util import read_input
 from random import choice
+import copy
+
 """
 Find the three wires you need to disconnect in order 
 to divide the components into two separate groups. 
@@ -22,55 +24,46 @@ def parse_instructions(instr):
     return vertices, edges
 
 
+def contract_edge(src, dst, edges):
+    new_edges = list()
+
+    for s, d in edges:
+        if ((s, d) == (src, dst)) or ((s, d) == (dst, src)):
+            continue
+        e = (src if s == dst else s, src if d == dst else d)
+        new_edges.append(e)
+
+    return new_edges
+
+
 def contract_edges(vertices, edges):
-    vert_groups = {v: set([v]) for v in vertices}
+    cuts = {v: set([v]) for v in vertices}
 
-    while len(vert_groups.keys()) > 2:
-        try:
-            src, dst = choice(edges)
-        except IndexError:
-            print(edges)
-            raise
-        vert_groups[src] = vert_groups[src].union(vert_groups[dst])
-        vert_groups.pop(dst, None)
+    while len(cuts.keys()) > 2:
+        src, dst = choice(edges)
+        cuts[src] = cuts[src].union(cuts[dst])
+        cuts.pop(dst, None)
+        edges = contract_edge(src, dst, edges)
 
-        new_edges = list()
-
-        for s, d in edges:
-            if s == dst:
-                if d == src:
-                    continue
-                e = (src, d)
-            elif d == dst:
-                if s == src:
-                    continue
-                e = (s, src)
-            else:
-                e = (s, d)
-            new_edges.append(e)
-
-        edges = new_edges
-
-    return vert_groups, edges
+    return cuts, edges
 
 
 def find_cut(vertices, edges):
 
-    while True:
-        vert_groups, edges = contract_edges(vertices.copy(), edges.copy())
+    cuts = copy.deepcopy(vertices)
+    edges = copy.deepcopy(edges)
 
-        if all(len(v) > 1 for v in vert_groups.values()) and len(edges) == 3:
-            size = 1
-            for vg in vert_groups.values():
-                size *= len(vg)
-            return size
+    while True:
+        c, e = contract_edges(cuts, edges)
+        if all(len(v) > 1 for v in c.values()) and len(e) == 3:
+            vg1, vg2 = c.values()
+            return len(vg1)*len(vg2)
 
 
 def get_solution(part):
 
     solution = 0
     connections = read_input('day25').splitlines()
-
     vertices, edges = parse_instructions(connections)
 
     if part == 1:
