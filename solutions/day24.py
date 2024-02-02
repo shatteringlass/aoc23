@@ -1,6 +1,8 @@
+from random import choice
+from itertools import combinations
+from typing import Optional, List, Union
 import dataclasses
 from util import read_input
-import fractions
 
 TEST_AREA = ((200_000_000_000_000, 200_000_000_000_000),
              (400_000_000_000_000, 400_000_000_000_000))
@@ -50,7 +52,7 @@ class Hailstone:
         return self.velocity[2]
 
     def position_at_time(self, t):
-        return (self.position[i] + t * self.velocity[i] for i, _ in enumerate(self.position))
+        return tuple(self.position[i] + t * self.velocity[i] for i, _ in enumerate(self.position))
 
     def adjust(self, frame):
         return Hailstone(self.position, tuple(c-f for c, f in zip(self.velocity, frame)))
@@ -99,87 +101,72 @@ def check_intersections(stones, min_value, max_value):
     return intersections
 
 
-def check_collision_point(trajectories):
-    """
-    # Check whether every particle collides with the first particle in the same location
-    # track the position of the collision
-    collision_pos = [0, 0]
+# Credit to github.com/ethanlu/advent-of-code for the gaussian elimination algorithm
+def _solve_matrix_equations(matrix: List[List[Union[int, float]]]) -> Optional[List[float]]:
+    for i in range(len(matrix)):
+        if matrix[i][i] == 0:
+            return None
+        matrix[i] = [matrix[i][k] / matrix[i][i]
+                     for k in range(len(matrix[i]))]
+        for j in range(i + 1, len(matrix)):
+            matrix[j] = [matrix[j][k] - matrix[i][k] * matrix[j][i]
+                         for k in range(len(matrix[i]))]
 
-    # compare to the first particle
-    i = 1
+    # back substituion
+    for i in reversed(range(len(matrix))):
+        for j in range(i):
+            matrix[j] = [matrix[j][k] - matrix[i][k] * matrix[j][i]
+                         for k in range(len(matrix[i]))]
 
-    # for each OTHER particle
-    for j in 2:length(p)
-        # check for a collision
-        x, y, t_a, t_b = find_intersection(p[i], p[j], v[i], v[j])
-
-        # ensure it happens in the future
-        if t_a > 0 && t_b > 0
-            # for the first collision, just update the value
-            if collision_pos == [0, 0]
-                collision_pos = [x, y]
-
-            # otherwise, ensure both the x and y match and if not, return a failure
-            elseif !all([x, y] .≈ collision_pos)
-                return [0, 0]
-            end
-        end
-    end
-    # on success return the position that everything collided at
-    return collision_pos
-    """
-    return
-
-
-def find_z(rock, trajectories):
-    z, t = [], []
-    for i in range(3):
-        stone = trajectories[i]
-        intersection = find_intersection(rock, stone)
-        if intersection:
-            (pxt, pyt, pzt), (t0, t1) = intersection
-            z.append(t1*stone.velocity[2]+stone.position[2])
-            t.append(t1)
-
-    """
-    # convert those into z velocities
-    vz_s = diff(z) ./ diff(t)
-
-    # if there are all the same (i.e. matches a straight line - celebration time)
-    if all(vz_s .≈ vz_s[1])
-        # get the launch velocity and position of the z coordinate
-        vz = round(vz_s[1])
-        z = round(p[3][3] + t[3] * (v[3][3] - vz))
-        return (z, vz)
-    else
-        # otherwise this one is a bust
-        return (0, 0)
-    end
-    """
-    return
+    return [round(r[-1], 2) for r in matrix]
 
 
 def find_perfect_shot(trajectories, xy_range=(-500, 500)):
+    def xy_coefficients(h: Hailstone) -> List[int]:
+        return [
+            h.velocity[0],
+            -h.velocity[1],
+            h.position[0],
+            h.position[1],
+            h.position[1] * h.velocity[0] - h.position[0] * h.velocity[1]
+        ]
 
-    for vx in range(xy_range[0], xy_range[1]):
-        for vy in range(xy_range[0], xy_range[1]):
-            rock_vel = (0, 0, 0), (vx, vy, 0)
-            adjusted_trajectories = [h.adjust(rock_vel) for h in trajectories]
+    def yz_coefficients(h: Hailstone) -> List[int]:
+        return [
+            h.velocity[1],
+            -h.velocity[2],
+            h.position[1],
+            h.position[2],
+            h.position[2] * h.velocity[1] - h.position[1] * h.velocity[2]
+        ]
 
-            launch_pos = check_collision_point(adjusted_trajectories)
+    # solve for xy and yz using 4 hails and a randomly selected hail
+    solution = 0
 
-            if launch_pos == (0, 0):
-                continue
+    for batch in combinations(trajectories, 4):
+        random_hail = choice(trajectories)
+        xy_matrix = [
+            [a - b for a, b in zip(c, xy_coefficients(random_hail))]
+            for c in [xy_coefficients(h) for h in batch]
+        ]
+        xy_solve = _solve_matrix_equations(xy_matrix)
+        if xy_solve is None:
+            continue
 
-            z, vz = find_z(
-                Hailstone(launch_pos, rock_vel),
-                adjusted_trajectories
-            )
+        yz_matrix = [
+            [a - b for a, b in zip(c, yz_coefficients(random_hail))]
+            for c in [yz_coefficients(h) for h in batch]
+        ]
+        yz_solve = _solve_matrix_equations(yz_matrix)
+        if yz_solve is None:
+            continue
 
-            if vz == 0:
-                continue
+        solution = xy_solve[0] + xy_solve[1] + yz_solve[0]
+        
+        if solution % 1 == 0.0:
+            break
 
-            return sum(launch_pos) + z
+    return int(solution)
 
 
 def get_solution(part):
@@ -193,7 +180,7 @@ def get_solution(part):
         solution = check_intersections(
             stones, TEST_AREA[0][0], TEST_AREA[1][1])
     elif part == 2:
-        pass
+        solution = find_perfect_shot(stones)
 
     return solution
 
